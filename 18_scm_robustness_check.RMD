@@ -1,0 +1,582 @@
+---
+title: "SCM Robustness Check"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-05-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+Date:           05/07/2023
+
+Last Checked:   06/05/2024
+
+This File:      Re-estimate breaks found in the main specification with SCM using the gsynth package (estimate SCM for each break in each sector in each country as a robustness check)
+
+
+```{r, echo = FALSE}
+# Load Libraries
+library(ggplot2)
+library(tidyverse)
+library(gsynth)
+library(panelView)
+```
+```{r}
+# Load Data
+data <- read_rds("break_detection_regression_input.RDS")
+
+# Load gsynth function edited
+source("00_oecd_project_functions.R")
+```
+
+
+```{r}
+# Define The Two Samples
+AC1 <- c("Australia", "Austria", "Belgium", "Bulgaria", "Canada", "Croatia",        
+         "Czech Republic" , "Denmark", "Estonia" ,"Finland","France", "Germany",        
+         "Greece", "Hungary","Iceland","Ireland", "Italy","Japan" ,         
+         "Latvia","Lithuania", "Luxembourg","Malta","Netherlands","New Zealand",
+         "Norway","Poland","Portugal","Romania", "Slovak Republic", "Slovenia"  ,
+         "Spain","Sweden","Switzerland","United Kingdom" , "United States")  
+AC6 <- c("Argentina","Brazil","Chile","Colombia","China","Costa Rica","India",
+         "Indonesia","Mexico","Peru","Russia","Saudi Arabia","South Africa",
+         "South Korea","Turkey") 
+
+# Restrict Time Series to 2000-2021 and to AC1
+data %>% subset(country  %in%  AC1) %>% subset(year >= 2000) -> ac1
+# Restrict Time Series to 2000-2021 and to AC6
+data %>% subset(country  %in%  AC6) %>% subset(year >= 2000) -> ac6
+
+# Sector Specific Controls
+buildings_controls <- " ~ lgdp + lpop + lgdp_sq + hdd + cdd + Labels_Appliances_2001 + Labels_Appliances_2013 + MEPS_Appliances_2009 + MEPS_Appliances_2013"
+electricity_controls <- " ~ lgdp + lpop + lgdp_sq + hdd + cdd + ETS_E_2005 + ETS_E_2018"
+industry_controls <- " ~ lgdp + lpop + lgdp_sq + hdd + cdd + ETS_I_2005 + ETS_I_2018 + MEPS_ElectricMotors_2011 + MEPS_ElectricMotors_2015"
+transport_controls <- " ~ lgdp + lpop + lgdp_sq + hdd + cdd + MEPS_T_2009" 
+
+```
+
+## Electricity Sector
+
+## AC1
+
+```{r}
+## AC1
+data <- ac1
+
+# Create Staggered SCM Treatments (exclude second break if in same country)
+data$treated <- 0
+data$treated <- ifelse(data$country == "United Kingdom" & data$year >= 2015, 1, data$treated)
+#data$treated <- ifelse(data$country == "United Kingdom" & data$year >= 2016, 1, data$treated)
+data$treated <- ifelse(data$country == "Sweden" & data$year >= 2005, 1, data$treated)
+data$treated <- ifelse(data$country == "Portugal" & data$year >= 2019, 1, data$treated)
+data$treated <- ifelse(data$country == "Norway" & data$year >= 2012, 1, data$treated)
+data$treated <- ifelse(data$country == "New Zealand" & data$year >= 2009, 1, data$treated)
+#data$treated <- ifelse(data$country == "New Zealand" & data$year >= 2014, 1, data$treated)
+
+# Check Treatments
+panelview(electricity_heat_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_electricity_heat_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+                + ETS_E_2005 + ETS_E_2018
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-electricity-ac1, fig.show="hold", out.width="50%"}
+
+plot(out, type = "gap", id = "United Kingdom", main = "United Kingdom 2015 (E)")
+
+plot(out, type = "ct", id = "United Kingdom", main = "United Kingdom 2015 (E)")
+
+
+plot(out, type = "gap", id = "Sweden", main = "Sweden 2005 (E)")
+
+plot(out, type = "ct", id = "Sweden", main = "Sweden 2005 (E)")
+
+
+plot(out, type = "gap", id = "Portugal", main = "Portugal 2019 (E)")
+
+plot(out, type = "ct", id = "Portugal", main = "Portugal 2019 (E)")
+
+
+plot(out, type = "gap", id = "Norway", main = "Norway 2012 (E)")
+
+plot(out, type = "ct", id = "Norway", main = "Norway 2012 (E)")
+
+
+plot(out, type = "gap", id = "New Zealand", main = "New Zealand 2009 (E)")
+
+plot(out, type = "ct", id = "New Zealand", main = "New Zealand 2009 (E)")
+
+```
+
+## AC6
+
+```{r}
+## AC6
+data <- ac6
+
+# Create Staggered SCM Treatments
+data$treated <- 0
+data$treated <- ifelse(data$country == "Brazil" & data$year >= 2016, 1, data$treated)
+#data$treated <- ifelse(data$country == "Colombia" & data$year >= 2004, 1, data$treated)
+data$treated <- ifelse(data$country == "Colombia" & data$year >= 2011, 1, data$treated)
+
+# Check Treatments
+panelview(log_electricity_heat_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_electricity_heat_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+                #+ ETS_E_2005 + ETS_E_2018 # Excluded because they do not apply
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-electricity-ac6, fig.show="hold", out.width="50%"}
+
+plot(out, type = "gap", id = "Brazil", main = "Brazil 2016 (E)")
+
+plot(out, type = "ct", id = "Brazil", main = "Brazil 2016 (E)")
+
+
+plot(out, type = "gap", id = "Colombia", main = "Colombia 2011 (E)")
+
+plot(out, type = "ct", id = "Colombia", main = "Colombia 2011 (E)")
+
+```
+
+
+
+
+
+
+
+## Industry Sector
+
+## AC1
+
+
+```{r}
+## AC1
+data <- ac1
+
+# Create Treatment Dummy for Treatment
+data$treated <- 0
+#data$treated <- ifelse(data$country == "Belgium" & data$year >= 2002, 1, 0)
+data$treated <- ifelse(data$country == "Bulgaria" & data$year >= 2008, 1, data$treated)
+#data$treated <- ifelse(data$country == "Bulgaria" & data$year >= 2009, 1, data$treated)
+data$treated <- ifelse(data$country == "Canada" & data$year >= 2005, 1, data$treated)
+data$treated <- ifelse(data$country == "Czech Republic" & data$year >= 2010, 1, data$treated)
+data$treated <- ifelse(data$country == "France" & data$year >= 2017, 1, data$treated)
+data$treated <- ifelse(data$country == "Ireland" & data$year >= 2009, 1, data$treated)
+data$treated <- ifelse(data$country == "Italy" & data$year >= 2013, 1, data$treated)
+#data$treated <- ifelse(data$country == "New Zealand" & data$year >= 2003, 1, data$treated)
+#data$treated <- ifelse(data$country == "New Zealand" & data$year >= 2005, 1, data$treated)
+data$treated <- ifelse(data$country == "Romania" & data$year >= 2009, 1, data$treated)
+
+# Check Treatments
+panelview(log_industry_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_industry_co2 ~ treated +
+                  lgdp + lpop + lgdp_sq + hdd + cdd + 
+                  ETS_I_2005 + ETS_I_2018 + 
+                  MEPS_ElectricMotors_2011 + MEPS_ElectricMotors_2015
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-industry-ac1, fig.show="hold", out.width="50%"}
+# Plot Individual Treatment Effects (Difference Factual and Counterfactual)
+plot(out, type = "gap", id = "Bulgaria", main = "Bulgaria 2008 (I)")
+plot(out, type = "ct", id = "Bulgaria", main = "Bulgaria 2008 (I)")
+
+plot(out, type = "gap", id = "Canada", main = "Canada 2005 (I)")
+plot(out, type = "ct", id = "Canada", main = "Canada 2005 (I)")
+
+plot(out, type = "gap", id = "Czech Republic", main = "Czech Republic 2010 (I)")
+plot(out, type = "ct", id = "Czech Republic", main = "Czech Republic 2010 (I)")
+
+
+plot(out, type = "gap", id = "France", main = "France 2017 (I)")
+plot(out, type = "ct", id = "France", main = "France 2017 (I)")
+
+
+plot(out, type = "gap", id = "Ireland", main = "Ireland 2009 (I)")
+plot(out, type = "ct", id = "Ireland", main = "Ireland 2009 (I)")
+
+
+plot(out, type = "gap", id = "Italy", main = "Italy 2013 (I)")
+plot(out, type = "ct", id = "Italy", main = "Italy 2013 (I)")
+
+
+#plot(out, type = "gap", id = "New Zealand", main = "New Zealand 2005 (I)")
+#plot(out, type = "ct", id = "New Zealand", main = "New Zealand 2005 (I)")
+
+
+plot(out, type = "gap", id = "Romania", main = "Romania 2009 (I)")
+plot(out, type = "ct", id = "Romania", main = "Romania 2009 (I)")
+```
+## AC6
+
+```{r}
+# AC6
+data <- ac6
+
+# Treatments
+data$treated <- 0
+data$treated <- ifelse(data$country == "China" & data$year >= 2016, 1, data$treated)
+data$treated <- ifelse(data$country == "Indonesia" & data$year >= 2013, 1, data$treated)
+#data$treated <- ifelse(data$country == "Russia" & data$year >= 2004, 1, data$treated)
+data$treated <- ifelse(data$country == "Saudi Arabia" & data$year >= 2016, 1, data$treated)
+#data$treated <- ifelse(data$country == "South Korea" & data$year >= 2004, 1, data$treated)
+
+# Check Treatments
+panelview(log_industry_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+system.time(
+  out <- gsynth(log_industry_co2 ~ treated +
+                  lgdp + lpop + lgdp_sq + hdd + cdd #+ 
+                #  ETS_I_2005 + ETS_I_2018 + 
+                #  MEPS_ElectricMotors_2011 + MEPS_ElectricMotors_2015
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 5), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-industry-ac6, fig.show="hold", out.width="50%"}
+plot(out, type = "gap", id = "China", main = "China 2016 (I)")
+plot(out, type = "ct", id = "China", main = "China 2016 (I)")
+#
+plot(out, type = "gap", id = "Indonesia", main = "Indonesia 2013 (I)")
+plot(out, type = "ct", id = "Indonesia", main = "Indonesia 2013 (I)")
+#
+plot(out, type = "gap", id = "Saudi Arabia", main = "Saudi Arabia 2016 (I)")
+plot(out, type = "ct", id = "Saudi Arabia", main = "Saudi Arabia 2016 (I)")
+
+```
+
+## Transport Sector
+
+## AC1
+
+```{r}
+## AC1
+data <- ac1
+
+# Create Staggered SCM Treatments
+data$treated <- 0
+data$treated <- ifelse(data$country == "Austria" & data$year >= 2006, 1, data$treated)
+data$treated <- ifelse(data$country == "Denmark" & data$year >= 2020, 1, data$treated)
+#data$treated <- ifelse(data$country == "France" & data$year >= 2004, 1, data$treated)
+#data$treated <- ifelse(data$country == "Germany" & data$year >= 2002, 1, data$treated)
+data$treated <- ifelse(data$country == "Germany" & data$year >= 2005, 1, data$treated)
+data$treated <- ifelse(data$country == "Hungary" & data$year >= 2011, 1, data$treated)
+data$treated <- ifelse(data$country == "Ireland" & data$year >= 2015, 1, data$treated)
+#data$treated <- ifelse(data$country == "Ireland" & data$year >= 2020, 1, data$treated)
+data$treated <- ifelse(data$country == "Norway" & data$year >= 2016, 1, data$treated)
+data$treated <- ifelse(data$country == "Poland" & data$year >= 2013, 1, data$treated)
+data$treated <- ifelse(data$country == "Romania" & data$year >= 2005, 1, data$treated)
+#data$treated <- ifelse(data$country == "Slovak Republic" & data$year >= 2003, 1, data$treated)
+data$treated <- ifelse(data$country == "Spain" & data$year >= 2009, 1, data$treated)
+data$treated <- ifelse(data$country == "Sweden" & data$year >= 2016, 1, data$treated)
+data$treated <- ifelse(data$country == "United States" & data$year >= 2008, 1, data$treated)
+
+# Check Treatments
+panelview(log_transport_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_transport_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+                + MEPS_T_2009
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-transport-ac1, fig.show="hold", out.width="50%"}
+# Plot Individual Treatment Effects (Difference Factual and Counterfactual)
+plot(out, type = "gap", id = "Austria", main = "Austria 2006 (T)")
+plot(out, type = "ct", id = "Austria", main = "Austria 2006 (T)")
+#
+plot(out, type = "gap", id = "Denmark", main = "Denmark 2020 (T)")
+plot(out, type = "ct", id = "Denmark", main = "Denmark 2020 (T)")
+
+plot(out, type = "gap", id = "Germany", main = "Germany 2005 (T)")
+plot(out, type = "ct", id = "Germany", main = "Germany 2005 (T)")
+#
+plot(out, type = "gap", id = "Hungary", main = "Hungary 2011 (T)")
+plot(out, type = "ct", id = "Hungary", main = "Hungary 2011 (T)")
+
+plot(out, type = "gap", id = "Ireland", main = "Ireland 2015 (T)")
+plot(out, type = "ct", id = "Ireland", main = "Ireland 2015 (T)")
+
+plot(out, type = "gap", id = "Norway", main = "Norway 2016 (T)")
+plot(out, type = "ct", id = "Norway", main = "Norway 2016 (T)")
+
+plot(out, type = "gap", id = "Poland", main = "Poland 2013 (T)")
+plot(out, type = "ct", id = "Poland", main = "Poland 2013 (T)")
+
+plot(out, type = "gap", id = "Romania", main = "Romania 2005 (T)")
+plot(out, type = "ct", id = "Romania", main = "Romania 2005 (T)")
+#
+plot(out, type = "gap", id = "Spain", main = "Spain 2009 (T)")
+plot(out, type = "ct", id = "Spain", main = "Spain 2009 (T)")
+#
+plot(out, type = "gap", id = "Sweden", main = "Sweden 2016 (T)")
+plot(out, type = "ct", id = "Sweden", main = "Sweden 2016 (T)")
+#
+plot(out, type = "gap", id = "United States", main = "United States 2008 (T)")
+plot(out, type = "ct", id = "United States", main = "United States 2008 (T)")
+```
+
+## AC6 
+
+```{r}
+# AC6
+data <- ac6
+
+# Treatments
+data$treated <- 0
+#data$treated <- ifelse(data$country == "Colombia" & data$year >= 2002, 1, data$treated)
+data$treated <- ifelse(data$country == "Colombia" & data$year >= 2008, 1, data$treated)
+data$treated <- ifelse(data$country == "Mexico" & data$year >= 2020, 1, data$treated)
+data$treated <- ifelse(data$country == "South Korea" & data$year >= 2008, 1, data$treated)
+
+# Check Treatments
+panelview(log_transport_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+system.time(
+  out <- gsynth(log_transport_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+#                + MEPS_T_2009
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-transport-ac6, fig.show="hold", out.width="50%"}
+# Plot Individual Treatment Effects (Difference Factual and Counterfactual)
+plot(out, type = "gap", id = "Colombia", main = "Colombia 2008 (T)")
+plot(out, type = "ct", id = "Colombia", main = "Colombia 2008 (T)")
+
+plot(out, type = "gap", id = "Mexico", main = "Mexico 2020 (T)")
+plot(out, type = "ct", id = "Mexico", main = "Mexico 2020 (T)")
+
+plot(out, type = "gap", id = "South Korea", main = "South Korea 2008 (T)")
+plot(out, type = "ct", id = "South Korea", main = "South Korea 2008 (T)")
+
+```
+
+## Buildings Sector
+
+## AC1
+
+```{r}
+## AC1
+data <- ac1
+
+# Create Staggered SCM Treatments
+data$treated <- 0
+data$treated <- ifelse(data$country == "Australia" & data$year >= 2019, 1, data$treated)
+data$treated <- ifelse(data$country == "Czech Republic" & data$year >= 2005, 1, data$treated)
+data$treated <- ifelse(data$country == "Denmark" & data$year >= 2020, 1, data$treated)
+data$treated <- ifelse(data$country == "Greece" & data$year >= 2012, 1, data$treated)
+#data$treated <- ifelse(data$country == "Greece" & data$year >= 2013, 1, data$treated)
+data$treated <- ifelse(data$country == "Ireland" & data$year >= 2015, 1, data$treated)
+#data$treated <- ifelse(data$country == "Ireland" & data$year >= 2020, 1, data$treated)
+data$treated <- ifelse(data$country == "New Zealand" & data$year >= 2018, 1, data$treated)
+data$treated <- ifelse(data$country == "Norway" & data$year >= 2015, 1, data$treated)
+data$treated <- ifelse(data$country == "Poland" & data$year >= 2019, 1, data$treated)
+#data$treated <- ifelse(data$country == "Slovak Republic" & data$year >= 2001, 1, data$treated)
+#data$treated <- ifelse(data$country == "Slovak Republic" & data$year >= 2003, 1, data$treated)
+data$treated <- ifelse(data$country == "Slovak Republic" & data$year >= 2011, 1, data$treated)
+#data$treated <- ifelse(data$country == "Slovak Republic" & data$year >= 2015, 1, data$treated)
+#data$treated <- ifelse(data$country == "Sweden" & data$year >= 2004, 1, data$treated)
+
+# Check Treatments
+panelview(log_buildings_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_transport_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+                + Labels_Appliances_2001 + Labels_Appliances_2013 + MEPS_Appliances_2009 #+ MEPS_Appliances_2013
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-buildings-ac1, fig.show="hold", out.width="50%"}
+# Plot Individual Treatment Effects (Difference Factual and Counterfactual)
+plot(out, type = "gap", id = "Australia", main = "Australia 2019 (B)")
+plot(out, type = "ct", id = "Australia", main = "Australia 2019 (B)")
+#
+plot(out, type = "gap", id = "Czech Republic", main = "Czech Republic 2005 (B)")
+plot(out, type = "ct", id = "Czech Republic", main = "Czech Republic 2005 (B)")
+#
+plot(out, type = "gap", id = "Denmark", main = "Denmark 2020 (B)")
+plot(out, type = "ct", id = "Denmark", main = "Denmark 2020 (B)")
+
+plot(out, type = "gap", id = "Greece", main = "Greece 2012 (B)")
+plot(out, type = "ct", id = "Greece", main = "Greece 2012 (B)")
+
+plot(out, type = "gap", id = "Ireland", main = "Ireland 2015 (B)")
+plot(out, type = "ct", id = "Ireland", main = "Ireland 2015 (B)")
+
+plot(out, type = "gap", id = "New Zealand", main = "New Zealand 2018 (B)")
+plot(out, type = "ct", id = "New Zealand", main = "New Zealand 2018 (B)")
+
+plot(out, type = "gap", id = "Norway", main = "Norway 2015 (B)")
+plot(out, type = "ct", id = "Norway", main = "Norway 2015 (B)")
+#
+plot(out, type = "gap", id = "Poland", main = "Poland 2019 (B)")
+plot(out, type = "ct", id = "Poland", main = "Poland 2019 (B)")
+#
+plot(out, type = "gap", id = "Slovak Republic", main = "Slovak Republic 2011 (B)")
+plot(out, type = "ct", id = "Slovak Republic", main = "Slovak Republic 2011 (B)")
+```
+
+## AC6
+
+```{r}
+# AC6
+
+data <- ac6
+
+# Treatments
+data$treated <- 0
+data$treated <- ifelse(data$country == "Argentina" & data$year >= 2017, 1, data$treated)
+data$treated <- ifelse(data$country == "China" & data$year >= 2018, 1, data$treated)
+data$treated <- ifelse(data$country == "Colombia" & data$year >= 2013, 1, data$treated)
+#data$treated <- ifelse(data$country == "Peru" & data$year >= 2003, 1, data$treated)
+data$treated <- ifelse(data$country == "Peru" & data$year >= 2006, 1, data$treated)
+data$treated <- ifelse(data$country == "South Africa" & data$year >= 2010, 1, data$treated)
+#data$treated <- ifelse(data$country == "South Africa" & data$year >= 2015, 1, data$treated)
+#data$treated <- ifelse(data$country == "South Africa" & data$year >= 2020, 1, data$treated)
+data$treated <- ifelse(data$country == "Turkey" & data$year >= 2013, 1, data$treated)
+
+
+# Check Treatments
+panelview(log_buildings_co2 ~ treated, data = data,  
+          index = c("country","year"), 
+          pre.post = TRUE,
+          axis.adjust = TRUE,
+          cex.axis.y = 4) 
+
+# Run Gsynth with Staggered Treatments (IFE)
+system.time(
+  out <- gsynth(log_transport_co2 ~ treated 
+                + hdd + cdd + lgdp + lpop + lgdp_sq
+                ,
+                data = data, 
+                index = c("country","year"), force = "two-way", 
+                CV = TRUE, r = c(0, 3), se = TRUE, 
+                inference = "parametric", nboots = 1000, 
+                parallel = FALSE, estimator = "ife")
+)
+```
+
+
+```{r,  figures-buildings-ac6, fig.show="hold", out.width="50%"}
+# Plot Individual Treatment Effects (Difference Factual and Counterfactual)
+plot(out, type = "gap", id = "Argentina", main = "Argentina 2017 (B)")
+plot(out, type = "ct", id = "Argentina", main = "Argentina 2017 (B)")
+#
+plot(out, type = "gap", id = "China", main = "China 2018 (B)")
+plot(out, type = "ct", id = "China", main = "China 2018 (B)")
+#
+plot(out, type = "gap", id = "Colombia", main = "Colombia 2013 (B)")
+plot(out, type = "ct", id = "Colombia", main = "Colombia 2013 (B)")
+
+plot(out, type = "gap", id = "Peru", main = "Peru 2006 (B)")
+plot(out, type = "ct", id = "Peru", main = "Peru 2006 (B)")
+
+plot(out, type = "gap", id = "South Africa", main = "South Africa 2010 (B)")
+plot(out, type = "ct", id = "South Africa", main = "South Africa 2010 (B)")
+
+plot(out, type = "gap", id = "Turkey", main = "Turkey 2013 (B)")
+plot(out, type = "ct", id = "Turkey", main = "Turkey 2013 (B)")
+
+```
+
+
+
+
+
